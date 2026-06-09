@@ -581,13 +581,15 @@ namespace ManagedShell.WindowsTasks
                         msg.Result = IntPtr.Zero;
                         return;
                     case (int)WM.USER + 67:
-                        // RegisterTab
+                        // RegisterTab - this window is a sub-tab of another; hide it from the taskbar
                         ShellLogger.Debug("TasksService: ITaskbarList: RegisterTab MDI HWND:" + msg.LParam + " Tab HWND: " + msg.WParam);
+                        removeWindow(msg.WParam);
                         msg.Result = IntPtr.Zero;
                         return;
                     case (int)WM.USER + 68:
-                        // UnregisterTab
+                        // UnregisterTab - window is no longer a sub-tab; re-add it if eligible
                         ShellLogger.Debug("TasksService: ITaskbarList: UnregisterTab Tab HWND: " + msg.WParam);
+                        addWindow(msg.WParam, ApplicationWindow.WindowState.Inactive, true);
                         msg.Result = IntPtr.Zero;
                         return;
                     case (int)WM.USER + 71:
