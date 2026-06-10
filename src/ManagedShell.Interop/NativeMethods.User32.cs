@@ -1922,6 +1922,7 @@ namespace ManagedShell.Interop
         public static IntPtr HWND_BROADCAST = new IntPtr(0xffff);
         public static int WINEVENT_OUTOFCONTEXT = 0;
         public static int WINEVENT_SKIPOWNPROCESS = 2;
+        public static int EVENT_SYSTEM_DESKTOPSWITCH = 0x0020;
         public static int EVENT_OBJECT_CLOAKED = 0x8017;
         public static int EVENT_OBJECT_UNCLOAKED = 0x8018;
         public static int EVENT_OBJECT_LOCATIONCHANGE = 0x800B;
