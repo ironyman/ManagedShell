@@ -311,6 +311,10 @@ namespace ManagedShell.AppBar
             // hide from alt-tab etc
             WindowHelper.HideWindowFromTasks(Handle);
 
+            // prevent system from activating this window when another window closes
+            NativeMethods.SetWindowLong(Handle, NativeMethods.GWL_EXSTYLE,
+                NativeMethods.GetWindowLong(Handle, NativeMethods.GWL_EXSTYLE) | (int)NativeMethods.ExtendedWindowStyles.WS_EX_NOACTIVATE);
+
             // register for full-screen notifications
             _fullScreenHelper.FullScreenApps.CollectionChanged += FullScreenApps_CollectionChanged;
 
@@ -476,6 +480,11 @@ namespace ManagedShell.AppBar
                         break;
                 }
                 handled = true;
+            }
+            else if (msg == (int)NativeMethods.WM.MOUSEACTIVATE)
+            {
+                handled = true;
+                return new IntPtr(NativeMethods.MA_NOACTIVATE);
             }
             else if (msg == (int)NativeMethods.WM.ACTIVATE && AppBarMode == AppBarMode.Normal && !EnvironmentHelper.IsAppRunningAsShell && !AllowClose)
             {
