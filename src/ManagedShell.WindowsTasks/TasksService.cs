@@ -37,6 +37,7 @@ namespace ManagedShell.WindowsTasks
         private WinEventProc moveEventProc;
         private static IntPtr desktopSwitchEventHook = IntPtr.Zero;
         private WinEventProc desktopSwitchEventProc;
+        private System.Windows.Threading.DispatcherTimer _desktopSwitchScanTimer;
 
         internal ITaskCategoryProvider TaskCategoryProvider;
         private TaskCategoryChangeDelegate CategoryChangeDelegate;
@@ -121,18 +122,10 @@ namespace ManagedShell.WindowsTasks
                             WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
                     }
 
-                    // Hook EVENT_SYSTEM_DESKTOPSWITCH so we can refresh ShowInTaskbar for all
-                    // tracked windows after a virtual desktop switch.
-                    //
-                    // Problem: EVENT_OBJECT_UNCLOAKED fires per-window as Windows uncloaks each
-                    // window on the newly active desktop, but it doesn't fire reliably for Win32
-                    // windows — only activating each window individually (HSHELL_WINDOWACTIVATED)
-                    // would otherwise trigger SetShowInTaskbar(), causing the taskbar to appear
-                    // empty until the user clicks each window.
-                    //
-                    // Fix: EVENT_SYSTEM_DESKTOPSWITCH fires once after the switch completes with
-                    // DWM cloak state already updated.  We iterate all windows and call
-                    // SetShowInTaskbar() in-place so visibility is correct without reordering.
+                    // Hook EVENT_SYSTEM_DESKTOPSWITCH for non-virtual desktop switches
+                    // (UAC prompt, lock screen, fast-user-switch). Windows 10/11 virtual desktop
+                    // switches do NOT fire this event — they only generate per-window
+                    // EVENT_OBJECT_CLOAKED/UNCLOAKED events, which CloakEventCallback handles.
                     desktopSwitchEventProc = DesktopSwitchEventCallback;
 
                     if (desktopSwitchEventHook == IntPtr.Zero)
@@ -723,29 +716,52 @@ namespace ManagedShell.WindowsTasks
                     ShellLogger.Debug($"TasksService: {(eventType == EVENT_OBJECT_CLOAKED ? "Cloak" : "Uncloak")} event received for {win.Title}");
                     win.SetShowInTaskbar();
                 }
+                else if (eventType == EVENT_OBJECT_UNCLOAKED)
+                {
+                    // Window was on another virtual desktop when RetroBar started (or was created
+                    // there later) and was never added to Windows. Now that DWM has uncloaked it,
+                    // add it so it appears in the taskbar.
+                    lock (_windowsLock)
+                    {
+                        ApplicationWindow win = new ApplicationWindow(this, hWnd);
+                        if (win.CanAddToTaskbar && win.ShowInTaskbar)
+                        {
+                            Windows.Add(win);
+                            sendTaskbarButtonCreatedMessage(win.Handle);
+                            ShellLogger.Debug($"TasksService: Uncloaked previously-unseen window {hWnd} ({win.Title})");
+                        }
+                    }
+
+                    // Schedule a deferred EnumWindows scan as a fallback for Win32 apps that
+                    // don't generate EVENT_OBJECT_UNCLOAKED reliably. Each uncloak event resets
+                    // the timer so we do one scan per desktop-switch batch.
+                    ScheduleDeferredWindowScan();
+                }
             }
         }
 
-        // Called once after a virtual desktop switch.
-        //
-        // Two things need to happen:
-        // 1. Update ShowInTaskbar for already-tracked windows (handles the case where RetroBar
-        //    started on the desktop being switched TO — those windows are in Windows already).
-        // 2. Enumerate all windows and add any that are now visible but were never tracked.
-        //    This covers the common case: RetroBar starts on Desktop 1, Desktop 2 windows are
-        //    cloaked at init so getInitialWindows() skips them; switching to Desktop 2 uncoaks
-        //    them but they're absent from Windows, so SetShowInTaskbar() alone never fires.
-        //    We add them at the end of the list to preserve the existing button order.
-        private void DesktopSwitchEventCallback(IntPtr hWinEventHook, uint eventType, IntPtr hWnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        private void ScheduleDeferredWindowScan()
         {
-            ShellLogger.Debug("TasksService: Virtual desktop switch detected, refreshing ShowInTaskbar for all windows");
+            if (_desktopSwitchScanTimer == null)
+            {
+                _desktopSwitchScanTimer = new System.Windows.Threading.DispatcherTimer();
+                _desktopSwitchScanTimer.Tick += (s, e) =>
+                {
+                    _desktopSwitchScanTimer.Stop();
+                    ScanForNewWindows();
+                };
+            }
+
+            _desktopSwitchScanTimer.Stop();
+            _desktopSwitchScanTimer.Interval = TimeSpan.FromMilliseconds(500);
+            _desktopSwitchScanTimer.Start();
+        }
+
+        private void ScanForNewWindows()
+        {
+            ShellLogger.Debug("TasksService: Deferred scan for previously-unseen windows");
             lock (_windowsLock)
             {
-                foreach (ApplicationWindow win in Windows)
-                {
-                    win.SetShowInTaskbar();
-                }
-
                 EnumWindows((hwnd, lParam) =>
                 {
                     if (!Windows.Any(i => i.Handle == hwnd))
@@ -755,12 +771,28 @@ namespace ManagedShell.WindowsTasks
                         {
                             Windows.Add(win);
                             sendTaskbarButtonCreatedMessage(win.Handle);
-                            ShellLogger.Debug($"TasksService: Desktop switch added previously-unseen window {hwnd} ({win.Title})");
+                            ShellLogger.Debug($"TasksService: Deferred scan added previously-unseen window {hwnd} ({win.Title})");
                         }
                     }
                     return true;
                 }, 0);
             }
+        }
+
+        // Fires for non-virtual desktop switches: UAC prompt, lock screen, fast-user-switch.
+        // Does NOT fire for Windows 10/11 virtual desktop switches; those use per-window
+        // EVENT_OBJECT_CLOAKED/UNCLOAKED events handled by CloakEventCallback.
+        private void DesktopSwitchEventCallback(IntPtr hWinEventHook, uint eventType, IntPtr hWnd, int idObject, int idChild, uint dwEventThread, uint dwmsEventTime)
+        {
+            ShellLogger.Debug("TasksService: Desktop switch detected, refreshing window list");
+            lock (_windowsLock)
+            {
+                foreach (ApplicationWindow win in Windows)
+                {
+                    win.SetShowInTaskbar();
+                }
+            }
+            ScanForNewWindows();
         }
 
         // set property on hook window that should receive ITaskbarList messages
