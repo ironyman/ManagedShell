@@ -275,7 +275,10 @@ namespace ManagedShell.WindowsTray
         {
             // We always need hWnd for new icons, or for existing icons if no GUID is present
             if (nicData.hWnd == IntPtr.Zero && (nicData.guidItem == Guid.Empty || (NIM)message == NIM.NIM_ADD))
+            {
+                ShellLogger.Debug($"NotificationArea: Ignored NIM={(NIM)message} with null hWnd GUID={nicData.guidItem} UID={nicData.uID} Tip={nicData.szTip}");
                 return false;
+            }
 
             NotifyIcon trayIcon = new NotifyIcon(this, nicData.hWnd);
             trayIcon.UID = nicData.uID;
@@ -360,7 +363,10 @@ namespace ManagedShell.WindowsTray
                         {
                             // we need a valid hWnd to add a new icon
                             if (nicData.hWnd == IntPtr.Zero)
+                            {
+                                ShellLogger.Debug($"NotificationArea: Ignored new icon with null hWnd GUID={nicData.guidItem} UID={nicData.uID} Tip={nicData.szTip}");
                                 return false;
+                            }
 
                             // default placement to a menu bar-like rect
                             trayIcon.Placement = defaultPlacement;

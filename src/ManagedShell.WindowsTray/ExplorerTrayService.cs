@@ -64,6 +64,8 @@ namespace ManagedShell.WindowsTray
 
             if (toolbarHwnd == IntPtr.Zero)
             {
+                ShellLogger.Warning("ExplorerTrayService: Could not find Explorer tray toolbar; trying ITrayNotify callback fallback");
+                GetTrayItemsViaCallback();
                 return;
             }
 
@@ -95,7 +97,7 @@ namespace ManagedShell.WindowsTray
                 {
                     if (!trayDelegate((uint)NIM.NIM_ADD, nid))
                     {
-                        ShellLogger.Debug("ExplorerTrayService: Ignored notify icon message");
+                        ShellLogger.Debug($"ExplorerTrayService: Ignored notify icon {trayItem.szIconText} hWnd={nid.hWnd} GUID={nid.guidItem}");
                     }
                 }
                 else
@@ -113,24 +115,37 @@ namespace ManagedShell.WindowsTray
         {
             IntPtr hwnd = FindWindow("Shell_TrayWnd", "");
 
-            if (hwnd != IntPtr.Zero)
+            if (hwnd == IntPtr.Zero)
             {
-                hwnd = FindWindowEx(hwnd, IntPtr.Zero, "TrayNotifyWnd", "");
-
-                if (hwnd != IntPtr.Zero)
-                {
-                    hwnd = FindWindowEx(hwnd, IntPtr.Zero, "SysPager", "");
-
-                    if (hwnd != IntPtr.Zero)
-                    {
-                        hwnd = FindWindowEx(hwnd, IntPtr.Zero, "ToolbarWindow32", IntPtr.Zero);
-
-                        return hwnd;
-                    }
-                }
+                ShellLogger.Debug("ExplorerTrayService: Shell_TrayWnd not found");
+                return IntPtr.Zero;
             }
 
-            return IntPtr.Zero;
+            hwnd = FindWindowEx(hwnd, IntPtr.Zero, "TrayNotifyWnd", "");
+
+            if (hwnd == IntPtr.Zero)
+            {
+                ShellLogger.Debug("ExplorerTrayService: TrayNotifyWnd not found under Shell_TrayWnd");
+                return IntPtr.Zero;
+            }
+
+            IntPtr sysPager = FindWindowEx(hwnd, IntPtr.Zero, "SysPager", "");
+
+            if (sysPager == IntPtr.Zero)
+            {
+                ShellLogger.Debug("ExplorerTrayService: SysPager not found under TrayNotifyWnd — trying ToolbarWindow32 directly");
+                hwnd = FindWindowEx(hwnd, IntPtr.Zero, "ToolbarWindow32", IntPtr.Zero);
+                if (hwnd == IntPtr.Zero)
+                    ShellLogger.Debug("ExplorerTrayService: ToolbarWindow32 not found directly under TrayNotifyWnd either");
+                return hwnd;
+            }
+
+            hwnd = FindWindowEx(sysPager, IntPtr.Zero, "ToolbarWindow32", IntPtr.Zero);
+
+            if (hwnd == IntPtr.Zero)
+                ShellLogger.Debug("ExplorerTrayService: ToolbarWindow32 not found under SysPager");
+
+            return hwnd;
         }
 
         private int GetNumTrayIcons(IntPtr toolbarHwnd)
@@ -198,6 +213,71 @@ namespace ManagedShell.WindowsTray
             }
 
             return nid;
+        }
+
+        private void GetTrayItemsViaCallback()
+        {
+            try
+            {
+                TrayNotify trayNotify = new TrayNotify();
+                var cb = new NotificationCB(trayDelegate);
+
+                if (EnvironmentHelper.IsWindows8OrBetter)
+                {
+                    var iface = (ITrayNotify)trayNotify;
+                    iface.RegisterCallback(cb, out ulong handle);
+                    iface.UnregisterCallback(handle);
+                }
+                else
+                {
+                    var iface = (ITrayNotifyLegacy)trayNotify;
+                    iface.RegisterCallback(cb);
+                }
+
+                ShellLogger.Info($"ExplorerTrayService: ITrayNotify callback pre-populated {cb.Count} icon(s)");
+                Marshal.ReleaseComObject(trayNotify);
+            }
+            catch (Exception e)
+            {
+                ShellLogger.Warning($"ExplorerTrayService: ITrayNotify callback fallback failed: {e.Message}; existing icons will not be pre-populated");
+            }
+        }
+
+        private class NotificationCB : INotificationCB
+        {
+            private readonly SystrayDelegate _trayDelegate;
+            public int Count { get; private set; }
+
+            public NotificationCB(SystrayDelegate trayDelegate)
+            {
+                _trayDelegate = trayDelegate;
+            }
+
+            public void Notify(uint nEvent, ref NOTIFYITEM item)
+            {
+                if (item.hWnd == IntPtr.Zero) return;
+
+                var nid = new SafeNotifyIconData
+                {
+                    hWnd = item.hWnd,
+                    uID = item.uID,
+                    guidItem = item.guidItem,
+                    hIcon = item.hIcon,
+                    szTip = item.pszIconText,
+                    uFlags = NIF.TIP | NIF.MESSAGE | NIF.STATE
+                };
+
+                if (item.hIcon != IntPtr.Zero)
+                    nid.uFlags |= NIF.ICON;
+
+                if (item.guidItem != Guid.Empty)
+                    nid.uFlags |= NIF.GUID;
+
+                ShellLogger.Debug($"ExplorerTrayService: ITrayNotify nEvent={nEvent} icon={item.pszIconText} exe={item.pszExeName} hWnd={item.hWnd} GUID={item.guidItem}");
+
+                if (_trayDelegate != null && _trayDelegate((uint)NIM.NIM_ADD, nid))
+                    Count++;
+            }
         }
 
         private bool GetAutoTrayEnabled()

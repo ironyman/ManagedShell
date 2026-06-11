@@ -211,7 +211,7 @@ namespace ManagedShell.WindowsTray
                                     return (IntPtr)1;
                                 }
 
-                                ShellLogger.Debug("TrayService: Ignored notify icon message");
+                                ShellLogger.Debug($"TrayService: Ignored notify icon message NIM={(NIM)trayData.dwMessage} hWnd={trayData.nid.hWnd} UID={trayData.nid.uID} Tip={trayData.nid.szTip}");
                             }
                             else
                             {
