@@ -1,6 +1,7 @@
 ﻿using ManagedShell.Common.Helpers;
 using ManagedShell.Common.Logging;
 using System;
+using System.Collections.Generic;
 using System.Collections.ObjectModel;
 using System.Diagnostics;
 using System.Linq;
@@ -22,6 +23,8 @@ namespace ManagedShell.WindowsTasks
         public event EventHandler<EventArgs> DesktopActivated;
         public event EventHandler<FullScreenEventArgs> FullScreenChanged;
         public event EventHandler<WindowEventArgs> MonitorChanged;
+
+        public Func<ApplicationWindow, IList<ApplicationWindow>, int> WindowInsertionIndexProvider { get; set; }
 
         private NativeWindowEx _HookWin;
         private object _windowsLock = new object();
@@ -294,7 +297,11 @@ namespace ManagedShell.WindowsTasks
             // add window unless we need to validate it is eligible to show in taskbar
             if (!sanityCheck || win.CanAddToTaskbar)
             {
-                Windows.Add(win);
+                int insertIdx = WindowInsertionIndexProvider?.Invoke(win, Windows) ?? -1;
+                if (insertIdx >= 0 && insertIdx < Windows.Count)
+                    Windows.Insert(insertIdx, win);
+                else
+                    Windows.Add(win);
                 ShellLogger.Debug($"TasksService: Added window {hWnd} ({win.Title})");
             }
 
@@ -855,7 +862,7 @@ namespace ManagedShell.WindowsTasks
             return childHwnd;
         }
 
-        internal ObservableCollection<ApplicationWindow> Windows
+        public ObservableCollection<ApplicationWindow> Windows
         {
             get
             {
