@@ -696,7 +696,16 @@ namespace ManagedShell.WindowsTasks
 
         private void makeForeground()
         {
-            NativeMethods.SetForegroundWindow(NativeMethods.GetLastActivePopup(Handle));
+            IntPtr hWnd = NativeMethods.GetLastActivePopup(Handle);
+            IntPtr foregroundHwnd = NativeMethods.GetForegroundWindow();
+            uint foregroundThreadId = NativeMethods.GetWindowThreadProcessId(foregroundHwnd, out _);
+            uint currentThreadId = NativeMethods.GetCurrentThreadId();
+
+            bool attached = foregroundThreadId != currentThreadId &&
+                            NativeMethods.AttachThreadInput(foregroundThreadId, currentThreadId, true);
+            NativeMethods.SetForegroundWindow(hWnd);
+            if (attached)
+                NativeMethods.AttachThreadInput(foregroundThreadId, currentThreadId, false);
         }
 
         internal IntPtr DoClose()

@@ -84,6 +84,9 @@ namespace ManagedShell.Interop
         [DllImport(Kernel32_DllName)]
         public static extern uint GetCurrentProcessId();
 
+        [DllImport(Kernel32_DllName)]
+        public static extern uint GetCurrentThreadId();
+
         [DllImport(Kernel32_DllName, SetLastError = true)]
         public static extern IntPtr OpenProcess(ProcessAccessFlags processAccess, bool bInheritHandle, int processId);
 
