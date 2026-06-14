@@ -49,10 +49,27 @@ namespace ManagedShell.AppBar
 
         private void TasksService_FullScreenChanged(object sender, FullScreenEventArgs e)
         {
+            ShellLogger.Debug($"FullScreenHelper: TasksService_FullScreenChanged hWnd={e.Handle} entering={e.IsEntering} activeCount={FullScreenApps.Count} inactiveCount={InactiveFullScreenApps.Count}");
+
             if (InactiveFullScreenApps.Count > 0 && InactiveFullScreenApps.Any(app => app.hWnd == e.Handle))
             {
-                // If this window is in the inactive list, remove it--the message that triggered this event takes precedence
-                InactiveFullScreenApps.Remove(InactiveFullScreenApps.First(app => app.hWnd == e.Handle));
+                if (e.IsEntering)
+                {
+                    // TasksService says entering — remove from inactive so it can be re-added to active below
+                    InactiveFullScreenApps.Remove(InactiveFullScreenApps.First(app => app.hWnd == e.Handle));
+                }
+                else
+                {
+                    // TasksService says exiting — only evict from inactive if the window is no longer
+                    // geometrically fullscreen (e.g. Win key press fires this event but the window hasn't resized)
+                    if (getFullScreenApp(e.Handle, false) == null)
+                    {
+                        ShellLogger.Debug($"FullScreenHelper: Removing inactive full screen app from TasksService {e.Handle}");
+                        InactiveFullScreenApps.Remove(InactiveFullScreenApps.First(app => app.hWnd == e.Handle));
+                    }
+                    // Window not in FullScreenApps either way, nothing left to do
+                    return;
+                }
             }
 
             if (FullScreenApps.Any(app => app.hWnd == e.Handle) == e.IsEntering)
@@ -86,8 +103,20 @@ namespace ManagedShell.AppBar
                 {
                     if (app.hWnd == e.Handle)
                     {
-                        ShellLogger.Debug($"FullScreenHelper: Removing full screen app from TasksService {app.hWnd} ({app.title})");
-                        FullScreenApps.Remove(app);
+                        // The window may still be geometrically fullscreen (e.g. Win key pressed — app
+                        // yields focus but doesn't resize). If so, treat it as inactive rather than gone.
+                        FullScreenApp stillFullScreen = getFullScreenApp(e.Handle, false);
+                        if (stillFullScreen != null)
+                        {
+                            ShellLogger.Debug($"FullScreenHelper: TasksService exit but still fullscreen geometry — moving to inactive {app.hWnd} ({app.title})");
+                            FullScreenApps.Remove(app);
+                            InactiveFullScreenApps.Add(app);
+                        }
+                        else
+                        {
+                            ShellLogger.Debug($"FullScreenHelper: Removing full screen app from TasksService {app.hWnd} ({app.title})");
+                            FullScreenApps.Remove(app);
+                        }
                         break;
                     }
                 }
@@ -226,6 +255,8 @@ namespace ManagedShell.AppBar
             ScreenInfo screenInfo = null;
             Rect rect = GetEffectiveWindowRect(hWnd);
 
+            ShellLogger.Debug($"FullScreenHelper: getFullScreenApp hWnd={hWnd} fromTasksService={fromTasksService} rect={rect.Left},{rect.Top},{rect.Right},{rect.Bottom}");
+
             if (!fromTasksService)
             {
                 var allScreens = Screen.AllScreens.Select(ScreenInfo.Create).ToList();
@@ -233,8 +264,12 @@ namespace ManagedShell.AppBar
 
                 foreach (var screen in allScreens)
                 {
-                    if (rect.Top == screen.Bounds.Top && rect.Left == screen.Bounds.Left &&
-                        rect.Bottom == screen.Bounds.Bottom && rect.Right == screen.Bounds.Right)
+                    ShellLogger.Debug($"FullScreenHelper: getFullScreenApp checking screen {screen.DeviceName} bounds={screen.Bounds.Left},{screen.Bounds.Top},{screen.Bounds.Right},{screen.Bounds.Bottom}");
+                    const int tolerance = 2;
+                    if (Math.Abs(rect.Top - screen.Bounds.Top) <= tolerance &&
+                        Math.Abs(rect.Left - screen.Bounds.Left) <= tolerance &&
+                        Math.Abs(rect.Bottom - screen.Bounds.Bottom) <= tolerance &&
+                        Math.Abs(rect.Right - screen.Bounds.Right) <= tolerance)
                     {
                         screenInfo = screen;
                         break;
@@ -243,7 +278,7 @@ namespace ManagedShell.AppBar
 
                 if (screenInfo == null)
                 {
-                    // If the window rect does not match any screen's bounds, it's not full screen
+                    ShellLogger.Debug($"FullScreenHelper: getFullScreenApp rect does not match any screen — not fullscreen");
                     return null;
                 }
             }
@@ -251,6 +286,7 @@ namespace ManagedShell.AppBar
             ApplicationWindow win = new ApplicationWindow(null, hWnd);
             if (!CanFullScreen(win))
             {
+                ShellLogger.Debug($"FullScreenHelper: getFullScreenApp CanFullScreen=false for hWnd={hWnd}");
                 return null;
             }
 

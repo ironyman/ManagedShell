@@ -409,7 +409,7 @@ namespace ManagedShell.WindowsTasks
             if (EnvironmentHelper.IsWindows8OrBetter)
             {
                 int cbSize = Marshal.SizeOf(typeof(uint));
-                NativeMethods.DwmGetWindowAttribute(Handle, NativeMethods.DWMWINDOWATTRIBUTE.DWMWA_CLOAKED, out var cloaked, cbSize);
+                NativeMethods.DwmGetWindowAttribute(Handle, NativeMethods.DWMWINDOWATTRIBUTE.DWMWA_CLOAKED, out uint cloaked, cbSize);
 
                 if (cloaked > 0)
                 {

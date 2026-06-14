@@ -36,6 +36,9 @@ namespace ManagedShell.Interop
         public static extern int DwmGetWindowAttribute(IntPtr hwnd, DWMWINDOWATTRIBUTE dwAttribute, out uint pvAttribute, int cbAttribute);
 
         [DllImport(DwmApi_DllName)]
+        public static extern int DwmGetWindowAttribute(IntPtr hwnd, DWMWINDOWATTRIBUTE dwAttribute, out Rect pvAttribute, int cbAttribute);
+
+        [DllImport(DwmApi_DllName)]
         public static extern int DwmSetWindowAttribute(IntPtr hwnd, DWMWINDOWATTRIBUTE dwAttribute, ref int pvAttribute, int cbAttribute);
 
         [DllImport(DwmApi_DllName, PreserveSig = false)]
