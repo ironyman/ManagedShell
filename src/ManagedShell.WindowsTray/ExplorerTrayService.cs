@@ -25,34 +25,47 @@ namespace ManagedShell.WindowsTray
             if (!EnvironmentHelper.IsAppRunningAsShell && trayDelegate != null)
             {
                 bool autoTrayEnabled = GetAutoTrayEnabled();
+                TrayNotify trayNotify = null;
 
+                // we can't get tray icons that are in the hidden area, so disable that temporarily if enabled.
+                // Failure here (e.g. TrayNotify CLSID not registered on this Windows build) must not skip the
+                // actual icon read below - it just means hidden icons may not be enumerated this pass.
                 if (autoTrayEnabled)
                 {
-                    // we can't get tray icons that are in the hidden area, so disable that temporarily if enabled
                     try
                     {
-                        TrayNotify trayNotify = new TrayNotify();
-
+                        trayNotify = new TrayNotify();
                         SetAutoTrayEnabled(trayNotify, false);
-                        GetTrayItems();
-                        SetAutoTrayEnabled(trayNotify, true);
-
-                        Marshal.ReleaseComObject(trayNotify);
                     }
                     catch (Exception e)
                     {
-                        ShellLogger.Debug($"ExplorerTrayService: Unable to get items using ITrayNotify: {e.Message}");
+                        ShellLogger.Debug($"ExplorerTrayService: Unable to disable auto-tray via ITrayNotify: {e.Message}");
+                        trayNotify = null;
                     }
                 }
-                else
+
+                try
+                {
+                    GetTrayItems();
+                }
+                catch (Exception e)
+                {
+                    ShellLogger.Debug($"ExplorerTrayService: Unable to get items: {e.Message}");
+                }
+
+                if (trayNotify != null)
                 {
                     try
                     {
-                        GetTrayItems();
+                        SetAutoTrayEnabled(trayNotify, true);
                     }
                     catch (Exception e)
                     {
-                        ShellLogger.Debug($"ExplorerTrayService: Unable to get items: {e.Message}");
+                        ShellLogger.Debug($"ExplorerTrayService: Unable to re-enable auto-tray via ITrayNotify: {e.Message}");
+                    }
+                    finally
+                    {
+                        Marshal.ReleaseComObject(trayNotify);
                     }
                 }
             }
