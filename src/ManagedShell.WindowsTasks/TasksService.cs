@@ -223,9 +223,9 @@ namespace ManagedShell.WindowsTasks
             {
                 ShellLogger.Debug("TasksService: Deregistering hooks");
                 DeregisterShellHookWindow(_HookWin.Handle);
-                if (cloakEventHook != IntPtr.Zero) UnhookWinEvent(cloakEventHook);
-                if (moveEventHook != IntPtr.Zero) UnhookWinEvent(moveEventHook);
-                if (desktopSwitchEventHook != IntPtr.Zero) UnhookWinEvent(desktopSwitchEventHook);
+                if (cloakEventHook != IntPtr.Zero) { UnhookWinEvent(cloakEventHook); cloakEventHook = IntPtr.Zero; }
+                if (moveEventHook != IntPtr.Zero) { UnhookWinEvent(moveEventHook); moveEventHook = IntPtr.Zero; }
+                if (desktopSwitchEventHook != IntPtr.Zero) { UnhookWinEvent(desktopSwitchEventHook); desktopSwitchEventHook = IntPtr.Zero; }
                 _HookWin.DestroyHandle();
                 setTaskbarListHwnd(IntPtr.Zero);
                 IsInitialized = false;
