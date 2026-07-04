@@ -389,6 +389,18 @@ namespace ManagedShell.WindowsTasks
 
                             case HSHELL.WINDOWACTIVATED:
                             case HSHELL.RUDEAPPACTIVATED:
+                                // Ignore activation of windows that aren't real taskbar-eligible app windows
+                                // and aren't already tracked (e.g. a WS_EX_NOACTIVATE shell window forcing
+                                // itself to the foreground, as RetroBar does to keep a context menu on top).
+                                // That isn't a genuine app switch, so it shouldn't deactivate every currently
+                                // active tracked window.
+                                if (msg.LParam != IntPtr.Zero
+                                    && !Windows.Any(i => i.Handle == msgCopy.LParam)
+                                    && !new ApplicationWindow(this, msg.LParam).CanAddToTaskbar)
+                                {
+                                    break;
+                                }
+
                                 foreach (var aWin in Windows.Where(w => w.State == ApplicationWindow.WindowState.Active))
                                 {
                                     aWin.State = ApplicationWindow.WindowState.Inactive;
