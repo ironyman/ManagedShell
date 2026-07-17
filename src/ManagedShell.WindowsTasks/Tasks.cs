@@ -61,6 +61,12 @@ namespace ManagedShell.WindowsTasks
             _tasksService.Initialize(withMultiMonTracking);
         }
 
+        // See TasksService.SweepDeadWindows.
+        public int SweepDeadWindows()
+        {
+            return _tasksService.SweepDeadWindows();
+        }
+
         public void SetTaskCategoryProvider(ITaskCategoryProvider taskCategoryProvider)
         {
             if (_tasksService.TaskCategoryProvider != null)

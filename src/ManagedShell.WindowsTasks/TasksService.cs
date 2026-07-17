@@ -328,6 +328,31 @@ namespace ManagedShell.WindowsTasks
             }
         }
 
+        // Manual escape hatch for windows stuck in the collection with a dead hwnd. Normally
+        // removeWindow() only runs off the shell hook's HSHELL_WINDOWDESTROYED notification (see
+        // ShellWinProc below); if that notification is ever missed - the process was killed rather
+        // than closed gracefully, or the message was simply dropped - the ApplicationWindow lingers
+        // forever, since nothing else ever re-validates existing entries (ScanForNewWindows only
+        // adds windows it hasn't seen yet, it never prunes ones it has). Returns the number removed.
+        public int SweepDeadWindows()
+        {
+            int removed = 0;
+            lock (_windowsLock)
+            {
+                foreach (var hwnd in Windows.Select(w => w.Handle).ToList())
+                {
+                    if (!IsWindow(hwnd))
+                    {
+                        removeWindow(hwnd);
+                        removed++;
+                    }
+                }
+            }
+
+            ShellLogger.Info($"TasksService: SweepDeadWindows removed {removed} dead window(s)");
+            return removed;
+        }
+
         private void redrawWindow(ApplicationWindow win)
         {
             win.UpdateProperties();
@@ -582,6 +607,17 @@ namespace ManagedShell.WindowsTasks
                         ShellLogger.Debug("TasksService: ITaskbarList: ActivateTab HWND:" + msg.LParam);
                         msg.Result = IntPtr.Zero;
                         return;
+                    // Deliberately no case for AddTab/DeleteTab (the WM.USER+51/+52 slots the old
+                    // ITaskbarList v1 message protocol used for these): confirmed via RetroBar's own
+                    // logs that real ITaskbarList3::DeleteTab calls (e.g. from window_manager's/
+                    // Tabame's own "skip taskbar" - both just CoCreateInstance(CLSID_TaskbarList) and
+                    // call the COM method) never arrive here at all, unlike ActivateTab/
+                    // MarkFullscreenWindow below which fire live. Modern AddTab/DeleteTab callers go
+                    // through COM/RPC straight into explorer.exe, not the legacy TaskbandHWND-redirected
+                    // SendMessage channel this hook intercepts. ApplicationWindow.CanAddToTaskbar's
+                    // "ITaskList_Deleted" property check is what real Explorer sets on DeleteTab, but
+                    // nothing here can write it - would require overriding the system's CLSID_TaskbarList
+                    // COM registration itself, which is out of scope (machine-wide, affects every app).
                     case (int)WM.USER + 60:
                         // MarkFullscreenWindow
                         // Also sends WM_SHELLHOOK message
