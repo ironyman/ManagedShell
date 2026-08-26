@@ -26,6 +26,14 @@ namespace ManagedShell.WindowsTasks
 
         public Func<ApplicationWindow, IList<ApplicationWindow>, int> WindowInsertionIndexProvider { get; set; }
 
+        // Off by default: some apps (observed with a Word add-in) briefly create and activate a
+        // genuine but 0x0-sized top-level window as a side effect of their own internal handling,
+        // which - like any other window that passes the other CanAddToTaskbar checks - gets a real
+        // task button for the instant it exists. Host apps can opt into filtering these out via
+        // ApplicationWindow.CanAddToTaskbar; left off by default since a window with no area is an
+        // edge case some legitimate (if unusual) windows could conceivably hit.
+        public bool FilterZeroSizeWindows { get; set; }
+
         private NativeWindowEx _HookWin;
         private object _windowsLock = new object();
         internal bool IsInitialized;

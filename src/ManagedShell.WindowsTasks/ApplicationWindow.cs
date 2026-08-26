@@ -363,7 +363,14 @@ namespace ManagedShell.WindowsTasks
                 bool isDeleted = NativeMethods.GetProp(Handle, "ITaskList_Deleted") != IntPtr.Zero;
                 IntPtr ownerWin = NativeMethods.GetWindow(Handle, NativeMethods.GetWindow_Cmd.GW_OWNER);
 
-                return isWindow && isVisible && (ownerWin == IntPtr.Zero || isAppWindow) && (!isNoActivate || isAppWindow) && !isToolWindow && !isDeleted;
+                bool hasArea = true;
+                if (isWindow && (_tasksService?.FilterZeroSizeWindows ?? false))
+                {
+                    NativeMethods.GetWindowRect(Handle, out NativeMethods.Rect rect);
+                    hasArea = rect.Right > rect.Left && rect.Bottom > rect.Top;
+                }
+
+                return isWindow && isVisible && hasArea && (ownerWin == IntPtr.Zero || isAppWindow) && (!isNoActivate || isAppWindow) && !isToolWindow && !isDeleted;
             }
         }
 
@@ -697,6 +704,20 @@ namespace ManagedShell.WindowsTasks
         private void makeForeground()
         {
             IntPtr hWnd = NativeMethods.GetLastActivePopup(Handle);
+
+            // GetLastActivePopup normally exists to redirect focus to an owned modal dialog instead
+            // of the window behind it - but it's just returning whatever Windows last recorded as
+            // the owner's active popup, with no guarantee that popup is still meaningful. An app can
+            // leave behind a stale, invisible, zero-size owned window (observed with a Word add-in)
+            // that never should have been treated as a real popup to begin with. Activating a
+            // degenerate popup like that makes it the genuine OS foreground window - which is enough
+            // for a shell hook to briefly show it as a task button - so fall back to the window we
+            // were actually asked to activate instead.
+            if (hWnd != Handle && !IsGenuinePopup(hWnd))
+            {
+                hWnd = Handle;
+            }
+
             IntPtr foregroundHwnd = NativeMethods.GetForegroundWindow();
             uint foregroundThreadId = NativeMethods.GetWindowThreadProcessId(foregroundHwnd, out _);
             uint currentThreadId = NativeMethods.GetCurrentThreadId();
@@ -706,6 +727,18 @@ namespace ManagedShell.WindowsTasks
             NativeMethods.SetForegroundWindow(hWnd);
             if (attached)
                 NativeMethods.AttachThreadInput(foregroundThreadId, currentThreadId, false);
+        }
+
+        // Rejects popups that couldn't be a real, currently-usable window: gone, hidden, or with no
+        // area. GetLastActivePopup falls back to returning hWnd itself when there's no popup, so this
+        // is only ever asked to validate a genuinely different, owned window.
+        private static bool IsGenuinePopup(IntPtr hWnd)
+        {
+            if (!NativeMethods.IsWindow(hWnd) || !NativeMethods.IsWindowVisible(hWnd))
+                return false;
+
+            NativeMethods.GetWindowRect(hWnd, out NativeMethods.Rect rect);
+            return rect.Right > rect.Left && rect.Bottom > rect.Top;
         }
 
         internal IntPtr DoClose()
