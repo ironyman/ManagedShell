@@ -61,6 +61,13 @@ namespace ManagedShell.WindowsTasks
             _tasksService.Initialize(withMultiMonTracking);
         }
 
+        // See TasksService.WindowRemoving.
+        public event EventHandler<WindowEventArgs> WindowRemoving
+        {
+            add => _tasksService.WindowRemoving += value;
+            remove => _tasksService.WindowRemoving -= value;
+        }
+
         // See TasksService.SweepDeadWindows.
         public int SweepDeadWindows()
         {

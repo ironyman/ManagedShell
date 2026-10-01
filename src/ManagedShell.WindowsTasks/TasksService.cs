@@ -24,6 +24,11 @@ namespace ManagedShell.WindowsTasks
         public event EventHandler<FullScreenEventArgs> FullScreenChanged;
         public event EventHandler<WindowEventArgs> MonitorChanged;
 
+        // Raised right before a window is removed from Windows, while its taskbar button still
+        // exists - lets a consumer capture the button (e.g. to animate it out), since the removal
+        // itself tears the button's container down synchronously.
+        public event EventHandler<WindowEventArgs> WindowRemoving;
+
         public Func<ApplicationWindow, IList<ApplicationWindow>, int> WindowInsertionIndexProvider { get; set; }
 
         // Off by default: some apps (observed with a Word add-in) briefly create and activate a
@@ -284,6 +289,7 @@ namespace ManagedShell.WindowsTasks
             if (window.DoClose() != IntPtr.Zero)
             {
                 ShellLogger.Debug($"TasksService: Removing window {window.Title} from collection due to no response");
+                WindowRemoving?.Invoke(this, new WindowEventArgs { Window = window });
                 window.Dispose();
                 Windows.Remove(window);
             }
@@ -327,6 +333,7 @@ namespace ManagedShell.WindowsTasks
                 do
                 {
                     ApplicationWindow win = Windows.First(wnd => wnd.Handle == hWnd);
+                    WindowRemoving?.Invoke(this, new WindowEventArgs { Window = win });
                     win.Dispose();
                     Windows.Remove(win);
 
