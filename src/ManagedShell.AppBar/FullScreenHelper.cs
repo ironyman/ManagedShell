@@ -16,6 +16,14 @@ namespace ManagedShell.AppBar
         private readonly DispatcherTimer _fullscreenCheck;
         private readonly TasksService _tasksService;
 
+        // Windows can send FULLSCREENENTER while the window is still mid-transition (e.g. Firefox's
+        // fullscreen animation), causing CanFullScreen to reject it. Since there is no polling on
+        // Windows 8+, retry rejected handles for a short while so they aren't missed until the next activation.
+        private const int EnterRetryIntervalMs = 250;
+        private const int EnterRetryAttempts = 6;
+        private readonly Dictionary<IntPtr, int> _pendingEnterRetries = new Dictionary<IntPtr, int>();
+        private DispatcherTimer _enterRetryTimer;
+
         public ObservableCollection<FullScreenApp> FullScreenApps = new ObservableCollection<FullScreenApp>();
         public ObservableCollection<FullScreenApp> InactiveFullScreenApps = new ObservableCollection<FullScreenApp>();
 
@@ -25,6 +33,12 @@ namespace ManagedShell.AppBar
 
             if (_tasksService != null && EnvironmentHelper.IsWindows8OrBetter)
             {
+                _enterRetryTimer = new DispatcherTimer(DispatcherPriority.Background, System.Windows.Application.Current.Dispatcher)
+                {
+                    Interval = TimeSpan.FromMilliseconds(EnterRetryIntervalMs)
+                };
+                _enterRetryTimer.Tick += EnterRetryTimer_Tick;
+
                 // On Windows 8 and newer, TasksService will tell us when windows enter and exit full screen
                 _tasksService.FullScreenChanged += TasksService_FullScreenChanged;
                 _tasksService.MonitorChanged += TasksService_Event;
@@ -50,6 +64,9 @@ namespace ManagedShell.AppBar
         private void TasksService_FullScreenChanged(object sender, FullScreenEventArgs e)
         {
             ShellLogger.Debug($"FullScreenHelper: TasksService_FullScreenChanged hWnd={e.Handle} entering={e.IsEntering} activeCount={FullScreenApps.Count} inactiveCount={InactiveFullScreenApps.Count}");
+
+            // Any newer notification for this window supersedes a pending retry
+            _pendingEnterRetries.Remove(e.Handle);
 
             if (InactiveFullScreenApps.Count > 0 && InactiveFullScreenApps.Any(app => app.hWnd == e.Handle))
             {
@@ -96,6 +113,12 @@ namespace ManagedShell.AppBar
                     ShellLogger.Debug($"FullScreenHelper: Adding full screen app from TasksService {appNew.hWnd} ({appNew.title})");
                     FullScreenApps.Add(appNew);
                 }
+                else
+                {
+                    ShellLogger.Debug($"FullScreenHelper: Full screen app from TasksService rejected, scheduling retry {e.Handle}");
+                    _pendingEnterRetries[e.Handle] = EnterRetryAttempts;
+                    _enterRetryTimer?.Start();
+                }
             }
             else
             {
@@ -120,6 +143,38 @@ namespace ManagedShell.AppBar
                         break;
                     }
                 }
+            }
+        }
+
+        private void EnterRetryTimer_Tick(object sender, EventArgs e)
+        {
+            foreach (IntPtr hWnd in _pendingEnterRetries.Keys.ToList())
+            {
+                if (FullScreenApps.Any(app => app.hWnd == hWnd))
+                {
+                    // Picked up some other way in the meantime
+                    _pendingEnterRetries.Remove(hWnd);
+                    continue;
+                }
+
+                FullScreenApp appNew = getFullScreenApp(hWnd, true);
+                if (appNew != null)
+                {
+                    ShellLogger.Debug($"FullScreenHelper: Adding full screen app from TasksService on retry {appNew.hWnd} ({appNew.title})");
+                    _pendingEnterRetries.Remove(hWnd);
+                    InactiveFullScreenApps.Remove(InactiveFullScreenApps.FirstOrDefault(app => app.hWnd == hWnd));
+                    FullScreenApps.Add(appNew);
+                }
+                else if (--_pendingEnterRetries[hWnd] <= 0)
+                {
+                    ShellLogger.Debug($"FullScreenHelper: Giving up on full screen retry {hWnd}");
+                    _pendingEnterRetries.Remove(hWnd);
+                }
+            }
+
+            if (_pendingEnterRetries.Count == 0)
+            {
+                _enterRetryTimer.Stop();
             }
         }
 
@@ -401,6 +456,8 @@ namespace ManagedShell.AppBar
         public void Dispose()
         {
             _fullscreenCheck?.Stop();
+            _enterRetryTimer?.Stop();
+            _pendingEnterRetries.Clear();
 
             if (_tasksService != null && EnvironmentHelper.IsWindows8OrBetter)
             {
